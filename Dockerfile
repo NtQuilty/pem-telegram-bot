@@ -9,8 +9,11 @@ COPY package*.json ./
 # Устанавливаем зависимости
 RUN npm install
 
-# Копируем остальные файлы проекта
-COPY . .
+# Копируем скомпилированные файлы
+COPY dist/ ./dist/
+
+# Копируем .env
+COPY .env ./
 
 # Создаем директорию для временных файлов
 RUN mkdir -p uploads
@@ -19,4 +22,4 @@ RUN mkdir -p uploads
 EXPOSE 7067
 
 # Запускаем приложение
-CMD ["node", "bot.js"]
+CMD ["node", "dist/bot.js"]
