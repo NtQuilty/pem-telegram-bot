@@ -26,6 +26,12 @@ const bot = new TelegramBot(process.env.TOKEN, {
   filepath: false,
 });
 
+// Обработка команды /start для получения CHAT_ID
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, chatId);
+});
+
 // Настройка хранилища для файлов
 const storage = multer.diskStorage({
   destination: function (_req, _file, cb) {
@@ -100,7 +106,8 @@ app.post("/api/submit-form", upload.array("files"), async (req, res) => {
 
     // Отправляем файлы
     for (const file of files) {
-      await bot.sendDocument(process.env.ADMIN_CHAT_ID, file.path, {
+      const fileStream = fs.createReadStream(file.path);
+      await bot.sendDocument(process.env.ADMIN_CHAT_ID, fileStream, {
         caption: `Файл для заявки ${orderId}`,
       });
 
