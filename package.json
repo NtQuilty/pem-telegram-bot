@@ -5,9 +5,8 @@
   "description": "Бот для приема заявок",
   "main": "bot.js",
   "scripts": {
-    "start": "npx ts-node bot.ts",
-    "dev": "npx ts-node bot.ts",
-    "build": "tsc"
+    "start": "node bot.js",
+    "dev": "node bot.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

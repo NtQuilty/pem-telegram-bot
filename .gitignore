@@ -9,9 +9,7 @@ yarn.lock
 # Скомпилированные файлы
 dist/
 build/
-*.js
 *.js.map
-!jest.config.js
 
 # Временные файлы и загрузки
 uploads/

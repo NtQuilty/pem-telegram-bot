@@ -5,11 +5,14 @@ import multer from "multer";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import { Response } from "express";
-import { FormRequest } from "./types";
+import { fileURLToPath } from "url";
 
 // Активируем загрузку переменных окружения из .env файла
 dotenv.config();
+
+// Получаем правильный __dirname для ES модулей
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Создаем папку для временного хранения файлов, если ее нет
 const uploadsDir = path.join(__dirname, "uploads");
@@ -38,23 +41,12 @@ const upload = multer({ storage: storage });
 // Настройка Express сервера
 const app = express();
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Обработка команды /start
-// bot.onText(/\/start/, msg => {
-//   const chatId = msg.chat.id;
-//   bot.sendMessage(
-//     chatId,
-//     `Ваш Chat ID: ${chatId}. Используйте его как process.env.ADMIN_CHAT_ID в настройках бота.`
-//   );
-// });
 
 // Путь к файлу с счетчиком заказов
 const counterFilePath = path.join(__dirname, "orderCounter.json");
 
 // Функция для получения следующего номера заказа
-function generateOrderId(): string {
+function generateOrderId() {
   let counter = 1;
 
   // Проверяем существование файла с счетчиком
@@ -84,19 +76,16 @@ function generateOrderId(): string {
 }
 
 // API эндпоинт для приема данных с формы
-app.post(
-  "/api/submit-form",
-  upload.array("files"),
-  async (req: FormRequest, res: Response) => {
-    try {
-      const orderId = generateOrderId();
-      console.log("Получены данные формы:", req.body);
+app.post("/api/submit-form", upload.array("files"), async (req, res) => {
+  try {
+    const orderId = generateOrderId();
+    console.log("Получены данные формы:", req.body);
 
-      const { name, telephone, mail, message } = req.body;
-      const files = req.files || [];
+    const { name, telephone, mail, message } = req.body;
+    const files = req.files || [];
 
-      // Формируем сообщение
-      let messageText = `
+    // Формируем сообщение
+    let messageText = `
 🆕 Новая заявка #${orderId}
 
 👤 Имя: ${name || "Не указано"}
@@ -106,38 +95,39 @@ app.post(
 📎 Файлы: ${files.length > 0 ? `Приложено (${files.length})` : "Нет"}
     `;
 
-      // Отправляем текст сообщения
-      await bot.sendMessage(process.env.ADMIN_CHAT_ID, messageText);
+    // Отправляем текст сообщения
+    await bot.sendMessage(process.env.ADMIN_CHAT_ID, messageText);
 
-      // Отправляем файлы
-      for (const file of files) {
-        await bot.sendDocument(process.env.ADMIN_CHAT_ID, file.path, {
-          caption: `Файл для заявки ${orderId}`,
-        });
-
-        // Удаляем файл после отправки
-        fs.unlinkSync(file.path);
-      }
-
-      await bot.sendMessage(
-        process.env.ADMIN_CHAT_ID,
-        "_____________________________"
-      );
-
-      res.status(200).json({
-        success: true,
-        orderId: orderId,
-        message: "Заявка успешно отправлена",
+    // Отправляем файлы
+    for (const file of files) {
+      await bot.sendDocument(process.env.ADMIN_CHAT_ID, file.path, {
+        caption: `Файл для заявки ${orderId}`,
       });
-    } catch (error) {
-      console.error("Ошибка:", error);
-      res.status(500).json({
-        success: false,
-        message: "Произошла ошибка при обработке заявки",
-      });
+
+      // Удаляем файл после отправки
+      fs.unlinkSync(file.path);
     }
+
+    await bot.sendMessage(
+      process.env.ADMIN_CHAT_ID,
+      "_____________________________"
+    );
+
+    res.status(200).json({
+      success: true,
+      orderId: orderId,
+      message: "Заявка успешно отправлена",
+    });
+  } catch (error) {
+    console.error("Ошибка:", error);
+    res.status(500).json({
+      success: false,
+      message: "Произошла ошибка при обработке заявки",
+    });
   }
-);
+});
 
 // Запуск сервера
-app.listen(process.env.PORT);
+app.listen(process.env.PORT, () => {
+  console.log(`Сервер запущен на порту ${process.env.PORT}`);
+});
