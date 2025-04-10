@@ -24,4 +24,4 @@ RUN npm run build
 EXPOSE 7067
 
 # Запускаем приложение
-CMD ["node", "bot.ts"]
+CMD ["npx", "ts-node", "bot.ts"]
