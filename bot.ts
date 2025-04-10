@@ -18,7 +18,10 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Инициализация бота
-const bot = new TelegramBot(process.env.TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.TOKEN, {
+  polling: true,
+  filepath: false,
+});
 
 // Настройка хранилища для файлов
 const storage = multer.diskStorage({

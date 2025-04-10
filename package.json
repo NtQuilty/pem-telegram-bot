@@ -1,13 +1,12 @@
 {
   "name": "order-telegram-bot",
   "version": "1.0.0",
-  "description": "Бот для приема заявок с сайта",
-  "main": "dist/bot.js",
+  "description": "Бот для приема заявок",
+  "main": "bot.js",
   "scripts": {
-    "start": "node dist/bot.js",
+    "start": "npx ts-node bot.ts",
     "dev": "npx ts-node bot.ts",
-    "build": "tsc",
-    "postbuild": "copy .env dist\\"
+    "build": "tsc"
   },
   "dependencies": {
     "cors": "^2.8.5",

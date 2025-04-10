@@ -3,23 +3,25 @@ FROM node:18-alpine
 # Создаем рабочую директорию
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
+# Копируем файлы для установки зависимостей
 COPY package*.json ./
+COPY tsconfig.json ./
 
 # Устанавливаем зависимости
 RUN npm install
 
-# Копируем скомпилированные файлы
-COPY dist/ ./dist/
-
-# Копируем .env
+# Копируем исходный код
+COPY *.ts ./
 COPY .env ./
 
 # Создаем директорию для временных файлов
 RUN mkdir -p uploads
 
-# Открываем порт
+# Собираем TypeScript проект
+RUN npm run build
+
+# Открываем порт, указанный в .env
 EXPOSE 7067
 
 # Запускаем приложение
-CMD ["node", "dist/bot.js"]
+CMD ["node", "bot.ts"]
