@@ -7,91 +7,89 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-// Активируем загрузку переменных окружения из .env файла
 dotenv.config();
 
-// Получаем правильный __dirname для ES модулей
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Создаем папку для временного хранения файлов, если ее нет
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const CONFIG = {
+  BOT_TOKEN: process.env.TOKEN,
+  ADMIN_CHAT_ID: process.env.ADMIN_CHAT_ID,
+  PORT: process.env.PORT || 3000,
+  ORDER_START: process.env.ORDER_START,
+  UPLOADS_DIR: path.join(__dirname, "uploads"),
+  COUNTER_FILE: path.join(__dirname, "orderCounter.json"),
+  ORDER_ID_PADDING: 4
+};
 
-// Инициализация бота
-const bot = new TelegramBot(process.env.TOKEN, {
-  polling: true,
-  filepath: false,
-});
 
-// Обработка команды /start для получения CHAT_ID
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, chatId);
-});
+class OrderCounter {
+  constructor(counterFilePath, orderStart) {
+    this.counterFilePath = counterFilePath;
+    this.initializeCounter(orderStart);
+  }
 
-// Настройка хранилища для файлов
-const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
-    cb(null, uploadsDir);
-  },
-  filename: function (_req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-
-const upload = multer({ storage: storage });
-
-// Настройка Express сервера
-const app = express();
-app.use(cors());
-
-// Путь к файлу с счетчиком заказов
-const counterFilePath = path.join(__dirname, "orderCounter.json");
-
-// Функция для получения следующего номера заказа
-function generateOrderId() {
-  let counter = 1;
-
-  // Проверяем существование файла с счетчиком
-  if (fs.existsSync(counterFilePath)) {
+  initializeCounter(orderStart) {
     try {
-      const data = fs.readFileSync(counterFilePath, "utf8");
-      const counterData = JSON.parse(data);
-      counter = counterData.lastOrderNumber + 1;
+      if (!orderStart) return;
+
+      const envStart = parseInt(orderStart, 10);
+      if (Number.isNaN(envStart) || envStart <= 0) return;
+
+      const desiredLast = envStart - 1;
+      const currentLast = this.readCurrentCounter();
+
+      if (currentLast === null || currentLast < desiredLast) {
+        this.writeCounter(desiredLast);
+        console.log(`Счетчик заказов инициализирован значением: ${desiredLast}`);
+      }
     } catch (error) {
-      console.error("Ошибка при чтении счетчика заказов:", error);
+      console.error("Ошибка при инициализации счетчика из ORDER_START:", error);
     }
   }
 
-  // Сохраняем новое значение счетчика
-  try {
-    fs.writeFileSync(
-      counterFilePath,
-      JSON.stringify({ lastOrderNumber: counter })
-    );
-  } catch (error) {
-    console.error("Ошибка при сохранении счетчика заказов:", error);
+  readCurrentCounter() {
+    if (!fs.existsSync(this.counterFilePath)) return null;
+
+    try {
+      const data = fs.readFileSync(this.counterFilePath, "utf8");
+      const parsed = JSON.parse(data);
+      return parsed.lastOrderNumber;
+    } catch (error) {
+      console.error("Ошибка при чтении счетчика заказов:", error);
+      return null;
+    }
   }
 
-  // Форматируем номер заказа с ведущими нулями
-  const formattedCounter = counter.toString().padStart(4, "0");
-  return `Заказ-${formattedCounter}`;
+
+  writeCounter(value) {
+    try {
+      fs.writeFileSync(
+        this.counterFilePath,
+        JSON.stringify({ lastOrderNumber: value })
+      );
+    } catch (error) {
+      console.error("Ошибка при сохранении счетчика заказов:", error);
+      throw error;
+    }
+  }
+
+  generateOrderId() {
+    const currentCounter = this.readCurrentCounter() || 0;
+    const nextCounter = currentCounter + 1;
+    
+    this.writeCounter(nextCounter);
+    
+    const formattedCounter = nextCounter.toString().padStart(CONFIG.ORDER_ID_PADDING, "0");
+    return `Заказ-${formattedCounter}`;
+  }
 }
 
-// API эндпоинт для приема данных с формы
-app.post("/api/submit-form", upload.array("files"), async (req, res) => {
-  try {
-    const orderId = generateOrderId();
-    console.log("Получены данные формы:", req.body);
-
-    const { name, telephone, mail, message } = req.body;
-    const files = req.files || [];
-
-    // Формируем сообщение
-    let messageText = `
+class TelegramUtils {
+  static formatOrderMessage(orderId, formData, files) {
+    const { name, telephone, mail, message } = formData;
+    
+    return `
 🆕 Новая заявка #${orderId}
 
 👤 Имя: ${name || "Не указано"}
@@ -99,34 +97,143 @@ app.post("/api/submit-form", upload.array("files"), async (req, res) => {
 ✉️ Email: ${mail || "Не указан"}
 💬 Сообщение: ${message || "Не указано"}
 📎 Файлы: ${files.length > 0 ? `Приложено (${files.length})` : "Нет"}
-    `;
+    `.trim();
+  }
 
-    // Отправляем текст сообщения
-    await bot.sendMessage(process.env.ADMIN_CHAT_ID, messageText);
+  static async sendOrderToTelegram(bot, chatId, orderId, formData, files) {
+    const messageText = this.formatOrderMessage(orderId, formData, files);
+    
+    await bot.sendMessage(chatId, messageText);
 
-    // Отправляем файлы
     for (const file of files) {
-      const fileStream = fs.createReadStream(file.path);
-      await bot.sendDocument(process.env.ADMIN_CHAT_ID, fileStream, {
-        caption: `Файл для заявки ${orderId}`,
-      });
-
-      // Удаляем файл после отправки
-      fs.unlinkSync(file.path);
+      try {
+        const fileStream = fs.createReadStream(file.path);
+        await bot.sendDocument(chatId, fileStream, {
+          caption: `Файл для заявки ${orderId}`,
+        });
+        
+        fs.unlinkSync(file.path);
+      } catch (error) {
+        console.error(`Ошибка при отправке файла ${file.originalname}:`, error);
+        try {
+          fs.unlinkSync(file.path);
+        } catch (_) {}
+      }
     }
 
-    await bot.sendMessage(
-      process.env.ADMIN_CHAT_ID,
-      "_____________________________"
-    );
+    await bot.sendMessage(chatId, "_____________________________");
+  }
+}
 
+function ensureUploadsDirectory() {
+  if (!fs.existsSync(CONFIG.UPLOADS_DIR)) {
+    fs.mkdirSync(CONFIG.UPLOADS_DIR, { recursive: true });
+  }
+}
+
+function validateConfig() {
+  const requiredEnvVars = ['TOKEN', 'ADMIN_CHAT_ID', 'PORT'];
+  const missing = requiredEnvVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Отсутствуют обязательные переменные окружения: ${missing.join(', ')}`);
+  }
+}
+
+validateConfig();
+ensureUploadsDirectory();
+
+const orderCounter = new OrderCounter(CONFIG.COUNTER_FILE, CONFIG.ORDER_START);
+
+const bot = new TelegramBot(CONFIG.BOT_TOKEN, {
+  polling: true,
+  filepath: false,
+});
+
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, chatId.toString());
+});
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, CONFIG.UPLOADS_DIR),
+  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+});
+
+const upload = multer({ storage });
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+function validateFormData(formData) {
+  const errors = [];
+  
+  if (formData.mail && !/\S+@\S+\.\S+/.test(formData.mail)) {
+    errors.push("Некорректный формат email");
+  }
+  
+  if (formData.telephone && !/^[\d\s\-\+\(\)]+$/.test(formData.telephone)) {
+    errors.push("Некорректный формат телефона");
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+}
+app.post("/api/submit-form", upload.array("files"), async (req, res) => {
+  try {
+    console.log("Получены данные формы:", req.body);
+    
+    const formData = {
+      name: req.body.name?.trim(),
+      telephone: req.body.telephone?.trim(),
+      mail: req.body.mail?.trim(),
+      message: req.body.message?.trim()
+    };
+    
+    const files = req.files || [];
+    
+    const validation = validateFormData(formData);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Ошибка валидации данных",
+        errors: validation.errors
+      });
+    }
+    
+    const orderId = orderCounter.generateOrderId();
+    console.log(`Создан заказ: ${orderId}`);
+    
+    await TelegramUtils.sendOrderToTelegram(
+      bot,
+      CONFIG.ADMIN_CHAT_ID,
+      orderId,
+      formData,
+      files
+    );
+    
+    console.log(`Заказ ${orderId} успешно отправлен в Telegram`);
+    
     res.status(200).json({
       success: true,
       orderId: orderId,
       message: "Заявка успешно отправлена",
     });
+    
   } catch (error) {
-    console.error("Ошибка:", error);
+    console.error("Ошибка при обработке заявки:", error);
+    
+    if (req.files) {
+      req.files.forEach(file => {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (_) {}
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Произошла ошибка при обработке заявки",
@@ -134,7 +241,16 @@ app.post("/api/submit-form", upload.array("files"), async (req, res) => {
   }
 });
 
-// Запуск сервера
-app.listen(process.env.PORT, () => {
-  console.log(`Сервер запущен на порту ${process.env.PORT}`);
+app.use((error, req, res, next) => {
+  console.error("Необработанная ошибка Express:", error);
+  res.status(500).json({
+    success: false,
+    message: "Внутренняя ошибка сервера"
+  });
+});
+
+app.listen(CONFIG.PORT, () => {
+  console.log(`Сервер запущен на порту ${CONFIG.PORT}`);
+  console.log(`Telegram бот инициализирован`);
+  console.log(`Папка для загрузок: ${CONFIG.UPLOADS_DIR}`);
 });
